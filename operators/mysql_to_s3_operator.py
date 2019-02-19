@@ -5,6 +5,7 @@ from mysql_plugin.hooks.astro_mysql_hook import AstroMySqlHook
 from airflow.utils.decorators import apply_defaults
 import json
 import logging
+import re
 
 
 class MySQLToS3Operator(BaseOperator):
@@ -24,7 +25,7 @@ class MySQLToS3Operator(BaseOperator):
     :type mysql_conn_id:            string
     :param mysql_table:             The input MySQL table to pull data from.
     :type mysql_table:              string
-    :param aws_conn_id:             The destination s3 connection id.
+    :param aws_conn_id:             The aws connection id.
     :type aws_conn_id:              string
     :param s3_bucket:               The destination s3 bucket.
     :type s3_bucket:                string
@@ -34,6 +35,9 @@ class MySQLToS3Operator(BaseOperator):
                                     schema information for the table as well as
                                     the data.
     :type package_schema:           boolean
+    :param target_db:               The db type the schema is generated for.
+                                    Currently 'mysql' or 'redshift'
+    :type target_db:                string
     :param incremental_key:         *(optional)* The incrementing key to filter
                                     the source data with. Currently only
                                     accepts a column with type of timestamp.
@@ -60,6 +64,7 @@ class MySQLToS3Operator(BaseOperator):
                  s3_bucket,
                  s3_key,
                  package_schema=False,
+                 target_db='mysql',
                  incremental_key=None,
                  start=None,
                  end=None,
@@ -72,6 +77,7 @@ class MySQLToS3Operator(BaseOperator):
         self.s3_bucket = s3_bucket
         self.s3_key = s3_key
         self.package_schema = package_schema
+        self.target_db = target_db
         self.incremental_key = incremental_key
         self.start = start
         self.end = end
@@ -88,12 +94,32 @@ class MySQLToS3Operator(BaseOperator):
         output_array = []
         for i in results:
             new_dict = {}
-            new_dict['name']=i['COLUMN_NAME']
-            new_dict['type']=i['COLUMN_TYPE']
-            
+            new_dict['name'] = i['COLUMN_NAME']
+            new_dict['type'] = self.map_type(self.target_db, i['COLUMN_TYPE'])
+
             if len(new_dict) == 2:
                 output_array.append(new_dict)
         self.s3_upload(json.dumps(output_array), schema=True)
+
+    """
+    Approximates MySQL data types to 'target_db' data types
+    (It only supports some Redshift type conversions for the moment)
+    """
+
+    def map_type(self, target_db, type):
+        if target_db == 'mysql':
+            return type
+        elif target_db == 'redshift':
+            if type == 'DOUBLE':
+                return 'DOUBLE PRECISION'
+            if re.match(r"(TINY)?INT\([0-9]+\)", type, re.IGNORECASE):
+                return 'INTEGER'
+            if re.match(r'MEDIUMTEXT', type, re.IGNORECASE) or re.match(r'TEXT', type, re.IGNORECASE):
+                return 'VARCHAR(65535)'
+            else:
+                return type
+        else:
+            raise Exception("Unsupported target DB " + target_db)
 
     def get_records(self, hook):
         logging.info('Initiating record retrieval.')
