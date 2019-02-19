@@ -24,8 +24,8 @@ class MySQLToS3Operator(BaseOperator):
     :type mysql_conn_id:            string
     :param mysql_table:             The input MySQL table to pull data from.
     :type mysql_table:              string
-    :param s3_conn_id:              The destination s3 connection id.
-    :type s3_conn_id:               string
+    :param aws_conn_id:             The destination s3 connection id.
+    :type aws_conn_id:              string
     :param s3_bucket:               The destination s3 bucket.
     :type s3_bucket:                string
     :param s3_key:                  The destination s3 key.
@@ -56,7 +56,7 @@ class MySQLToS3Operator(BaseOperator):
     def __init__(self,
                  mysql_conn_id,
                  mysql_table,
-                 s3_conn_id,
+                 aws_conn_id,
                  s3_bucket,
                  s3_key,
                  package_schema=False,
@@ -68,7 +68,7 @@ class MySQLToS3Operator(BaseOperator):
         super().__init__(*args, **kwargs)
         self.mysql_conn_id = mysql_conn_id
         self.mysql_table = mysql_table
-        self.s3_conn_id = s3_conn_id
+        self.aws_conn_id = aws_conn_id
         self.s3_bucket = s3_bucket
         self.s3_key = s3_key
         self.package_schema = package_schema
@@ -132,7 +132,7 @@ class MySQLToS3Operator(BaseOperator):
         return results
 
     def s3_upload(self, results, schema=False):
-        s3 = S3Hook(s3_conn_id=self.s3_conn_id)
+        s3 = S3Hook(aws_conn_id=self.aws_conn_id)
         key = '{0}'.format(self.s3_key)
         # If the file being uploaded to s3 is a schema, append "_schema" to the
         # end of the file name.
@@ -146,5 +146,4 @@ class MySQLToS3Operator(BaseOperator):
             key=key,
             replace=True
         )
-        s3.connection.close()
         logging.info('File uploaded to s3')
