@@ -159,17 +159,17 @@ class MySQLToS3Operator(BaseOperator):
 
     def s3_upload(self, results, schema=False):
         s3 = S3Hook(aws_conn_id=self.aws_conn_id)
-        key = '{0}'.format(self.s3_key)
+        key = '{0}'.format(self.s3_key).rstrip()
         # If the file being uploaded to s3 is a schema, append "_schema" to the
         # end of the file name.
-        if schema and key[-5:] == '.json':
+        logging.info('Uploading file {}'.format(key))
+        logging.info('Schema flag is {}'.format(schema))
+        if schema:
             key = key[:-5] + '_schema' + key[-5:]
-        if schema and key[-4:] == '.csv':
-            key = key[:-4] + '_schema' + key[-4:]
         s3.load_string(
             string_data=results,
             bucket_name=self.s3_bucket,
             key=key,
             replace=True
         )
-        logging.info('File uploaded to s3')
+        logging.info('File uploaded to s3 key {}'.format(key))
