@@ -114,6 +114,8 @@ class MySQLToS3Operator(BaseOperator):
                 return 'DOUBLE PRECISION'
             if re.match(r"(TINY)?INT\([0-9]+\)", type, re.IGNORECASE):
                 return 'INTEGER'
+            if re.match(r"BIGINT\([0-9]+\)", type, re.IGNORECASE):
+                return 'BIGINT'
             if re.match(r'MEDIUMTEXT', type, re.IGNORECASE) or re.match(r'TEXT', type, re.IGNORECASE) or type.upper() == 'JSON':
                 return 'VARCHAR(65535)'
             else:
