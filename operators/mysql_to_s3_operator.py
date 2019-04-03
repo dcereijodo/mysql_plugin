@@ -65,6 +65,7 @@ class MySQLToS3Operator(BaseOperator):
                  s3_key,
                  package_schema=False,
                  target_db='mysql',
+                 query=None,
                  incremental_key=None,
                  start=None,
                  end=None,
@@ -78,6 +79,7 @@ class MySQLToS3Operator(BaseOperator):
         self.s3_key = s3_key
         self.package_schema = package_schema
         self.target_db = target_db
+        self.query = query
         self.incremental_key = incremental_key
         self.start = start
         self.end = end
@@ -139,12 +141,23 @@ class MySQLToS3Operator(BaseOperator):
         if not self.incremental_key:
             query_filter = ''
 
-        query = \
-            """
-            SELECT *
-            FROM {0}
-            {1}
-            """.format(self.mysql_table, query_filter)
+        if self.query is not None:
+            query = \
+                """
+                SELECT *
+                FROM (
+                    {0}
+                ) sq
+                {1}
+                """.format(self.query, query_filter)
+        else:
+            query = \
+                """
+                SELECT *
+                FROM {0}
+                {1}
+                """.format(self.mysql_table, query_filter)
+        logging.info('Query built for batch {}'.format(query))
 
         # Perform query and convert returned tuple to list
         results = list(hook.get_records(query))
