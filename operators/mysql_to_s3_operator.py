@@ -5,6 +5,7 @@ from mysql_plugin.hooks.astro_mysql_hook import AstroMySqlHook
 from airflow.utils.decorators import apply_defaults
 import json
 import logging
+import re
 
 
 class MySQLToS3Operator(BaseOperator):
@@ -24,8 +25,8 @@ class MySQLToS3Operator(BaseOperator):
     :type mysql_conn_id:            string
     :param mysql_table:             The input MySQL table to pull data from.
     :type mysql_table:              string
-    :param s3_conn_id:              The destination s3 connection id.
-    :type s3_conn_id:               string
+    :param aws_conn_id:             The aws connection id.
+    :type aws_conn_id:              string
     :param s3_bucket:               The destination s3 bucket.
     :type s3_bucket:                string
     :param s3_key:                  The destination s3 key.
@@ -34,6 +35,9 @@ class MySQLToS3Operator(BaseOperator):
                                     schema information for the table as well as
                                     the data.
     :type package_schema:           boolean
+    :param target_db:               The db type the schema is generated for.
+                                    Currently 'mysql' or 'redshift'
+    :type target_db:                string
     :param incremental_key:         *(optional)* The incrementing key to filter
                                     the source data with. Currently only
                                     accepts a column with type of timestamp.
@@ -50,16 +54,18 @@ class MySQLToS3Operator(BaseOperator):
     :type end:                       timestamp (YYYY-MM-DD HH:MM:SS)
     """
 
-    template_fields = ['start', 'end', 's3_key']
+    template_fields = ['start', 'end', 's3_key', 'query']
 
     @apply_defaults
     def __init__(self,
                  mysql_conn_id,
                  mysql_table,
-                 s3_conn_id,
+                 aws_conn_id,
                  s3_bucket,
                  s3_key,
                  package_schema=False,
+                 target_db='mysql',
+                 query=None,
                  incremental_key=None,
                  start=None,
                  end=None,
@@ -68,10 +74,12 @@ class MySQLToS3Operator(BaseOperator):
         super().__init__(*args, **kwargs)
         self.mysql_conn_id = mysql_conn_id
         self.mysql_table = mysql_table
-        self.s3_conn_id = s3_conn_id
+        self.aws_conn_id = aws_conn_id
         self.s3_bucket = s3_bucket
         self.s3_key = s3_key
         self.package_schema = package_schema
+        self.target_db = target_db
+        self.query = query
         self.incremental_key = incremental_key
         self.start = start
         self.end = end
@@ -88,12 +96,34 @@ class MySQLToS3Operator(BaseOperator):
         output_array = []
         for i in results:
             new_dict = {}
-            new_dict['name']=i['COLUMN_NAME']
-            new_dict['type']=i['COLUMN_TYPE']
-            
+            new_dict['name'] = i['COLUMN_NAME']
+            new_dict['type'] = self.map_type(self.target_db, i['COLUMN_TYPE'])
+
             if len(new_dict) == 2:
                 output_array.append(new_dict)
         self.s3_upload(json.dumps(output_array), schema=True)
+
+    """
+    Approximates MySQL data types to 'target_db' data types
+    (It only supports some Redshift type conversions for the moment)
+    """
+
+    def map_type(self, target_db, type):
+        if target_db == 'mysql':
+            return type
+        elif target_db == 'redshift':
+            if type == 'DOUBLE':
+                return 'DOUBLE PRECISION'
+            if re.match(r"(TINY)?INT\([0-9]+\)", type, re.IGNORECASE):
+                return 'INTEGER'
+            if re.match(r"BIGINT\([0-9]+\)", type, re.IGNORECASE):
+                return 'BIGINT'
+            if re.match(r'MEDIUMTEXT', type, re.IGNORECASE) or re.match(r'TEXT', type, re.IGNORECASE) or type.upper() == 'JSON':
+                return 'VARCHAR(65535)'
+            else:
+                return type
+        else:
+            raise Exception("Unsupported target DB " + target_db)
 
     def get_records(self, hook):
         logging.info('Initiating record retrieval.')
@@ -111,12 +141,23 @@ class MySQLToS3Operator(BaseOperator):
         if not self.incremental_key:
             query_filter = ''
 
-        query = \
-            """
-            SELECT *
-            FROM {0}
-            {1}
-            """.format(self.mysql_table, query_filter)
+        if self.query is not None:
+            query = \
+                """
+                SELECT *
+                FROM (
+                    {0}
+                ) sq
+                {1}
+                """.format(self.query, query_filter)
+        else:
+            query = \
+                """
+                SELECT *
+                FROM {0}
+                {1}
+                """.format(self.mysql_table, query_filter)
+        logging.info('Query built for batch {}'.format(query))
 
         # Perform query and convert returned tuple to list
         results = list(hook.get_records(query))
@@ -132,19 +173,18 @@ class MySQLToS3Operator(BaseOperator):
         return results
 
     def s3_upload(self, results, schema=False):
-        s3 = S3Hook(s3_conn_id=self.s3_conn_id)
-        key = '{0}'.format(self.s3_key)
+        s3 = S3Hook(aws_conn_id=self.aws_conn_id)
+        key = '{0}'.format(self.s3_key).rstrip()
         # If the file being uploaded to s3 is a schema, append "_schema" to the
         # end of the file name.
-        if schema and key[-5:] == '.json':
+        logging.info('Uploading file {}'.format(key))
+        logging.info('Schema flag is {}'.format(schema))
+        if schema:
             key = key[:-5] + '_schema' + key[-5:]
-        if schema and key[-4:] == '.csv':
-            key = key[:-4] + '_schema' + key[-4:]
         s3.load_string(
             string_data=results,
             bucket_name=self.s3_bucket,
             key=key,
             replace=True
         )
-        s3.connection.close()
-        logging.info('File uploaded to s3')
+        logging.info('File uploaded to s3 key {}'.format(key))
