@@ -54,7 +54,7 @@ class MySQLToS3Operator(BaseOperator):
     :type end:                       timestamp (YYYY-MM-DD HH:MM:SS)
     """
 
-    template_fields = ['start', 'end', 's3_key']
+    template_fields = ['start', 'end', 's3_key', 'query']
 
     @apply_defaults
     def __init__(self,
