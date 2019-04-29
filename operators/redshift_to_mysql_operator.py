@@ -24,6 +24,8 @@ class RedshiftToMySqlTransfer(BaseOperator):
         of the data coming in, allowing the task to be idempotent (running
         the task twice won't double load data). (templated)
     :type mysql_preoperator: str
+    :param replace: Whether to replace instead of insert
+    :type replace: bool
     """
 
     template_fields = ('sql', 'mysql_table', 'mysql_preoperator')
@@ -37,6 +39,7 @@ class RedshiftToMySqlTransfer(BaseOperator):
                  redshift_conn_id,
                  mysql_conn_id='mysql_default',
                  mysql_preoperator=None,
+                 replace=True,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sql = sql
@@ -44,6 +47,7 @@ class RedshiftToMySqlTransfer(BaseOperator):
         self.mysql_conn_id = mysql_conn_id
         self.mysql_preoperator = mysql_preoperator
         self.redshift_conn_id = redshift_conn_id
+        self.replace = replace
 
     def execute(self, context):
         postgres = PostgresHook(postgres_conn_id=self.redshift_conn_id)
@@ -57,4 +61,4 @@ class RedshiftToMySqlTransfer(BaseOperator):
             mysql.run(self.mysql_preoperator)
 
         self.log.info("Inserting rows into MySQL")
-        mysql.insert_rows(table=self.mysql_table, rows=results)
+        mysql.insert_rows(table=self.mysql_table, rows=results, replace=self.replace)
