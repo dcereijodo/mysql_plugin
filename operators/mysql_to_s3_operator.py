@@ -120,6 +120,8 @@ class MySQLToS3Operator(BaseOperator):
                 return 'BIGINT'
             if re.match(r'MEDIUMTEXT', type, re.IGNORECASE) or re.match(r'LONGTEXT', type, re.IGNORECASE) or type.upper() == 'JSON':
                 return 'VARCHAR(65535)'
+            if re.match(r'DATETIME\([0-9]+\)', type, re.IGNORECASE):
+                return 'TIMESTAMP'
             else:
                 return type
         else:
