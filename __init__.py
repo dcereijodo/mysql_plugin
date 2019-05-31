@@ -6,7 +6,7 @@ from mysql_plugin.operators.redshift_to_mysql_operator import RedshiftToMySqlTra
 
 
 class MySQLToS3Plugin(AirflowPlugin):
-    name = "MySQLToS3Plugin"
+    name = "mysql_plugin"
     operators = [MySQLToS3Operator, S3ToMySQLOperator, RedshiftToMySqlTransfer]
     # Leave in for explicitness
     hooks = [AstroMySqlHook]
